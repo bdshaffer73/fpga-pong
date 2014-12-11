@@ -1,0 +1,779 @@
+/////////////////////////////////////////////////
+//////////////                ///////////////////
+////////////KEYBOARD INTERFACE///////////////////
+/////////////                 ///////////////////
+/////////////////////////////////////////////////
+module ps2_lab1(clk, rst, HEX0,HEX1,HEX2,HEX3, LEDG,LEDR, PS2_DAT, PS2_CLK, led0,led1, Button3, Button2, Button1, Button0,VGA_R, VGA_B, VGA_G,VGA_HS, VGA_VS, VGA_BLANK_N, VGA_CLK, VGA_SYNC_N);
+
+  input  clk;
+  input Button0, Button1, Button2, Button3;
+  input   rst;
+  output  [6:0]  HEX0,HEX1,HEX2,HEX3; 
+  output  [8:4]  LEDG; ///8:4
+  output [17:0] LEDR;   
+  output [7:0] VGA_R, VGA_B, VGA_G;
+  output VGA_HS, VGA_VS, VGA_BLANK_N, VGA_CLK, VGA_SYNC_N;
+  input PS2_DAT;
+  input PS2_CLK;
+  //inout  [35:0]  GPIO_0, GPIO_1;
+  wire [7:0] scan_code;
+  wire [7:0] scan_code1;
+  output led0,led1;//had to rename these, wouldnt let me do --reg LEDG[8:0];
+  reg led0;
+  reg led1;
+  reg dummy0,dummy1;
+  
+  /////player 1 paddle
+    always @ (posedge clk)
+  begin
+	if(scan_code == 8'h1C)
+	begin
+	  led0 = 1'b1;
+	  dummy0=1'b1;
+	  end
+	else if(scan_code == 8'h23)
+	begin
+		led1=1'b1;
+		dummy1=1'b1;
+		end
+	else
+	begin
+	dummy0=1'b0;
+	dummy1=1'b0;
+	end
+	end
+  
+  
+
+
+	
+//gets scan code for player one and two
+keyboardYO player1(clk, KEY, SW, HEX0, HEX1,HEX2,HEX3,PS2_DAT, PS2_CLK, GPIO_0, GPIO_1, scan_code);// 
+// keyboardYO player2(clk, KEY, SW, PS2_DAT, PS2_CLK, GPIO_0, GPIO_1, scan_code1);// HEX0, HEX1,HEX2,HEX3, LEDR
+//sends scan code to graphics portion of the code
+ Visual_Pong(clk, VGA_R,VGA_B,VGA_G,VGA_BLANK_N, VGA_SYNC_N , VGA_HS, VGA_VS, rst, VGA_CLK, Button3, Button2, Button1, Button0,dummy0,dummy1);
+ 
+endmodule
+
+module keyboardYO(
+  // Clock Input (50 MHz)
+  input  clk,
+  //  Push Buttons
+  input  [3:0]  KEY,
+  //  DPDT Switches 
+  input  [17:0]  SW,
+  //  7-SEG Displays
+  output  [6:0]  HEX0, HEX1,HEX2,HEX3, 
+  //  LEDs
+ // output  [17:0] LEDR,//  LED Red[17:0]
+  //  PS2 data and clock lines        
+  input    PS2_DAT,
+  input    PS2_CLK,
+  //  GPIO Connections
+  inout  [35:0]  GPIO_0, GPIO_1,
+  output [7:0] scan_code
+);
+
+//  set all inout ports to tri-state
+assign  GPIO_0    =  36'hzzzzzzzzz;
+assign  GPIO_1    =  36'hzzzzzzzzz;
+
+wire RST;
+assign RST = KEY[0];
+	
+// Connect dip switches to red LEDs
+//assign LEDR[17:0] = SW[17:0];
+
+
+wire reset = 1'b0;
+
+
+reg [7:0] history[1:4];
+wire read, scan_ready;
+
+
+oneshot pulser(
+   .pulse_out(read),
+   .trigger_in(scan_ready),
+   .clk(clk)
+);
+
+keyboard kbd(
+  .keyboard_clk(PS2_CLK),
+  .keyboard_data(PS2_DAT),
+  .clock50(clk),
+  .reset(reset),
+  .read(read),
+  .scan_ready(scan_ready),
+  .scan_code(scan_code)
+);
+//stuff were sending over for the hex to display
+hex_7seg dsp0(history[1][3:0],HEX0);  //this shows hex value of the keys
+hex_7seg dsp1(history[1][7:4],HEX1);
+
+hex_7seg dsp2(history[2][3:0],HEX2);//This displays the break code when the key is not pressed any more
+hex_7seg dsp3(history[2][7:4],HEX3);//
+
+//hex_7seg dsp4(history[3][3:0],HEX4);
+//hex_7seg dsp5(history[3][7:4],HEX5);
+
+//hex_7seg dsp6(history[4][3:0],HEX6);
+//hex_7seg dsp7(history[4][7:4],HEX7);
+
+
+always @(posedge scan_ready)
+begin
+    history[4] <= history[3];
+    history[3] <= history[2];
+    history[2] <= history[1];
+    history[1] <= scan_code;
+	// if(history[2] == 8'hf0)
+	//led=1'b0;
+		
+		
+end
+    
+
+// blank remaining digits
+/*
+wire [6:0] blank = 7'h7f;
+assign HEX2 = blank;
+assign HEX3 = blank;
+assign HEX4 = blank;
+assign HEX5 = blank;
+assign HEX6 = blank;
+assign HEX7 = blank;
+*/
+
+endmodule
+
+
+
+module keyboard(keyboard_clk, keyboard_data, clock50, reset, read, scan_ready, scan_code);
+input keyboard_clk;
+input keyboard_data;//the actual input from the keyboard
+input clock50; // 50 Mhz system clock
+input reset;
+input read;
+output scan_ready;
+output [7:0] scan_code;
+reg ready_set;
+reg [7:0] scan_code;
+reg scan_ready;
+reg read_char;
+reg clock; // 25 Mhz internal clock
+
+reg [3:0] incnt;
+reg [8:0] shiftin;
+
+reg [7:0] filter;
+reg keyboard_clk_filtered;
+
+// scan_ready is set to 1 when scan_code is available.
+// user should set read to 1 and then to 0 to clear scan_ready
+
+always @ (posedge ready_set or posedge read)
+if (read == 1) scan_ready <= 0;
+else scan_ready <= 1;
+
+// divide-by-two 50MHz to 25MHz
+always @(posedge clock50)
+    clock <= ~clock;
+
+
+
+// This process filters the raw clock signal coming from the keyboard 
+// using an eight-bit shift register and two AND gates
+
+always @(posedge clock)
+begin
+   filter <= {keyboard_clk, filter[7:1]};
+   if (filter==8'b1111_1111) keyboard_clk_filtered <= 1;//if this filter is one, then it doesnt allow signal from keyboard
+   else if (filter==8'b0000_0000) keyboard_clk_filtered <= 0;
+end
+
+
+// This process reads in serial data coming from the terminal
+
+always @(posedge keyboard_clk_filtered)
+begin
+   if (reset==1)
+   begin
+      incnt <= 4'b0000;
+      read_char <= 0;
+   end
+   else if (keyboard_data==0 && read_char==0)
+   begin
+    read_char <= 1;
+    ready_set <= 0;
+   end
+   else
+   begin
+       // shift in next 8 data bits to assemble a scan code    
+       if (read_char == 1)
+           begin
+              if (incnt < 9) 
+              begin
+                incnt <= incnt + 1'b1;
+                shiftin = { keyboard_data, shiftin[8:1]};
+                ready_set <= 0;
+            end
+        else
+            begin
+                incnt <= 0;
+                scan_code <= shiftin[7:0];
+                read_char <= 0;
+                ready_set <= 1;
+            end
+        end
+    end
+end
+
+endmodule
+
+
+module oneshot(output reg pulse_out, input trigger_in, input clk);
+reg delay;
+
+always @ (posedge clk)
+begin
+    if (trigger_in && !delay) 
+			pulse_out <= 1'b1;
+    else pulse_out <= 1'b0;
+    		delay <= trigger_in;
+end 
+endmodule
+
+module hex_7seg(hex_digit,seg);
+input [3:0] hex_digit;
+output [6:0] seg;
+reg [6:0] seg;
+// seg = {g,f,e,d,c,b,a};
+// 0 is on and 1 is off
+
+always @ (hex_digit)
+begin
+case (hex_digit)
+        4'h0: begin
+		  seg = 7'b1000000;
+		  end
+        4'h1: begin
+		  seg = 7'b1111001;
+		  end								
+        4'h2: begin
+		  seg = 7'b0100100;
+		  end									
+        4'h3: begin
+		  seg = 7'b0110000;   
+		  end  
+        4'h4: begin
+		  seg = 7'b0011001;
+		  end
+        4'h5: begin 
+		  seg = 7'b0010010; 
+		  end 
+        4'h6: begin 
+		  seg = 7'b0000010; 
+		  end
+        4'h7: begin
+		  seg = 7'b1111000;  
+		  end 
+        4'h8: begin 
+		  seg = 7'b0000000;
+		  end 
+        4'h9: begin
+		  seg = 7'b0011000;  
+		  end
+        4'ha: begin 
+		  seg = 7'b0001000;
+		  end
+        4'hb: begin
+		  seg = 7'b0000011;
+		  end
+        4'hc: begin
+		  seg = 7'b1000110;;
+		  end
+        4'hd: begin
+		  seg = 7'b0100001;
+		  end
+        4'he: begin
+		  seg = 7'b0000110;
+		  end
+        4'hf: begin
+		  seg = 7'b0001110;
+		  end
+endcase
+end
+
+
+endmodule 
+
+/////////////////////////////////////////////////
+//////////////                ///////////////////
+//////////////Graphics of PONG///////////////////
+/////////////                 ///////////////////
+/////////////////////////////////////////////////
+
+   
+	module Visual_Pong(clk, VGA_R,VGA_B,VGA_G,VGA_BLANK_N, VGA_SYNC_N , VGA_HS, VGA_VS, rst, VGA_CLK, Button3, Button2, Button1, Button0,dummy0,dummy1);
+
+    output [7:0] VGA_R, VGA_B, VGA_G;
+    output VGA_HS, VGA_VS, VGA_BLANK_N, VGA_CLK, VGA_SYNC_N;
+	 input dummy0,dummy1;
+    input clk, rst;
+	 input Button0, Button1, Button2, Button3;
+	 wire WireButton0, WireButton1, WireButton2, WireButton3;
+    wire CLK108;
+	 wire [30:0]X, Y;
+	 reg [31:0]P1In, P2In;
+	 reg [31:0]ballX, ballY;
+	 
+	 reg winCond=0;
+	 
+	 assign WireButton0=dummy0;
+	 assign WireButton1=dummy1;
+	 assign WireButton2=Button2;
+	 assign WireButton3=Button3;	 
+	 assign refresh= (X==0)&&(Y==0);
+	 
+	 //paddle 1's parameters
+	 localparam P1_L=31'd100;
+	 localparam P1_R=31'd125;
+	 localparam P1_T=31'd75; //P1In
+	 localparam P1_B=31'd100+P1_T; //P1In
+	 assign Paddle1=((X>=P1_L)&&(X<=P1_R)&&(Y>=(P1_T+P1In))&&(Y<=(P1In+P1_B)));
+	 
+	//paddle 2 parameters   										
+	localparam P2_L=31'd1125;
+	localparam P2_R=31'd1150;
+	localparam P2_T=31'd75;
+	localparam P2_B=31'd100+P2_T;
+	assign Paddle2=((X>=P2_L)&&(X<=P2_R)&&(Y>=(P2_T+P2In))&&(Y<=(P2_B+P2In)));
+
+	//Ball_Parameters
+	localparam Ball_L= 31'd100;
+	localparam Ball_R= Ball_L+31'd20;
+	localparam Ball_T= 31'd75 ;
+	localparam Ball_B=Ball_T+31'd20;
+	assign Ball=((X>=Ball_L + ballX)&&(X<=Ball_R + ballX)&&(Y>=Ball_T+ ballY)&&(Y<=Ball_B+ ballY));
+	reg ballDirectionX=1;
+	reg ballDirectionY=1;
+	 
+	 reg black;
+	
+    clock108(rst, clk, CLK_108, locked);
+
+    wire hblank, vblank, clkLine, blank;
+
+    H_SYNC(CLK_108, VGA_HS, hblank, clkLine, X);
+    V_SYNC(clkLine, VGA_VS, vblank, Y);
+
+
+    //drawing shapes	
+	 always@(*)
+		begin
+			if(Paddle1 | Paddle2| Ball)//Paddle1
+				black=1'b0;
+			else
+				black=1'b1;
+		end
+			
+	
+	
+	reg temp;
+	reg [31:0]count;
+	
+
+	always@(posedge clk)	
+	begin
+				if(count>=31'd100010)
+					count<=0;
+				else
+					count<=count+1;
+			
+				//Paddle1
+				if(WireButton0==1'b0 && count==31'd100000) // jimmy said to input a counter here
+					P1In<=P1In+31'd1;
+				else
+					temp<=temp;
+				
+				if(WireButton1==1'b0 && count==31'd100000)
+					P1In<=P1In-31'd1;	
+				else
+					temp<=temp;	
+			
+				if(P1In>31'd700)
+					P1In<=31'd700;
+				else
+					temp<=temp;
+		
+				if(P1In<31'd25)
+					P1In<=31'd25;	
+				else
+					temp<=temp;
+			
+		
+				//paddle2
+				if(WireButton3==1'b0 && count==31'd100000) // jimmy said to input a counter here
+					P2In<=P2In+31'd1;
+				else
+					temp<=temp;
+				
+				if(WireButton2==1'b0 && count==31'd100000)
+					P2In<=P2In-31'd1;	
+				else
+					temp<=temp;	
+			
+				if(P2In>31'd700)
+					P2In<=31'd700;
+				else
+					temp<=temp;
+		
+				if(P2In<31'd25)
+					P2In<=31'd25;	
+				else
+					temp<=temp;
+			
+		
+	
+
+
+				//ball movement
+				if(count==31'd100000)
+					begin
+						//ball in X direction
+						if(winCond && WireButton0 && WireButton1 && WireButton2 && WireButton3)
+							begin
+								ballX<=31'd500;
+								P1In<=31'd350;
+								P2In<=31'd350;
+							end
+						else if(ballDirectionX)
+							begin
+								ballX<=ballX+1;
+								winCond<=0;
+							end	
+						else
+							begin
+								ballX<=ballX-1;
+								winCond<=0;
+							end
+
+						if(ballX>=31'd1005 && ((P2In)<=(ballY+31'd10)) &&(P2In+31'd100)>=(ballY+31'd10) &&~winCond)
+							begin
+								ballX<=31'd1004;
+								ballDirectionX<=1'b0;
+							end
+						else if(ballX>=31'd1005)
+							winCond<=1;
+						else
+							temp<=temp;
+							
+						if(winCond)
+							temp<=temp;
+						else if(ballX<=31'd25 && ((P1In)<=(ballY+31'd10)) &&(P1In+31'd100)>=(ballY+31'd10) && ~winCond)
+							begin
+								ballX<=31'd26;
+								ballDirectionX<=1'b1;
+							end
+						else if(ballX<=31'd20)
+							begin
+								winCond<=1;
+							end
+						else
+							temp<=temp;
+
+						//ball in y direction
+						if(winCond && WireButton0 && WireButton1 && WireButton2 && WireButton3)
+						begin
+							ballY<=31'd400;
+						end
+                  else if(ballDirectionY)
+						begin
+							ballY<=ballY+1;	
+						end
+						else
+						begin
+							ballY<=ballY-1;
+						end
+						if(ballY>=31'd800)
+							begin
+								ballY<=31'd799;
+								ballDirectionY<=1'b0;
+							end
+						else
+							temp<=temp;
+						if(ballY<=31'd50)
+							begin
+								ballY<=31'd51;
+								ballDirectionY<=1;
+							end
+						else
+							temp<=temp;
+							
+
+					end
+				else	
+					temp<=temp;
+
+	end
+
+	color(clk,VGA_R,VGA_B,VGA_G, black);
+    assign VGA_CLK = CLK_108;
+    assign VGA_BLANK_N = VGA_VS&VGA_HS;
+    assign VGA_SYNC_N = 1'b0;
+	 
+	 
+endmodule
+
+module countingRefresh(X, Y, clk, count);
+input [31:0]X, Y;
+input clk;
+output [7:0]count;
+reg[7:0]count;
+always@(posedge clk)
+begin
+	if(X==0 &&Y==0)
+		count<=count+1;
+	else if(count==7'd11)
+		count<=0;
+	else
+		count<=count;
+end
+
+endmodule
+
+module color(clk, red, blue, green, black);
+     input clk, black;
+    output [7:0] red, blue, green;
+	 reg[7:0] red, green, blue;
+	always@(*)
+	begin
+		if(black==1'b1)
+		begin
+		 red = 8'd0;
+		 blue = 8'd0;
+		 green = 8'd0;
+		end 
+		else
+		begin
+		 red = 8'd255;
+		 blue = 8'd255;
+		 green = 8'd255;
+		end
+	end 
+
+	 
+endmodule
+
+module H_SYNC(clk, hout, bout, newLine, Xcount);
+
+    input clk;
+    output hout, bout, newLine;
+	 output [31:0] Xcount;
+	 
+	
+    reg [31:0] count = 32'd0;
+    reg hsync, blank, new1;
+
+    always @(posedge clk) begin
+        if (count <  1688)
+            count <= Xcount + 1;
+        else 
+            count <= 0;
+    end 
+
+    always @(*) begin
+        if (count == 0)
+            new1 = 1;
+        else
+            new1 = 0;
+    end 
+
+    always @(*) begin
+        if (count > 1279) 
+            blank = 1;
+        else 
+            blank = 0;
+    end
+
+    always @(*) begin
+        if (count < 1328)
+            hsync = 1;
+        else if (count > 1327 && count < 1440)
+            hsync = 0;
+        else    
+            hsync = 1;
+        end
+    assign Xcount=count;
+    assign hout = hsync;
+    assign bout = blank;
+    assign newLine = new1;
+
+endmodule
+
+module V_SYNC(clk, vout, bout, Ycount);
+
+    input clk;
+    output vout, bout;
+    output [31:0]Ycount; 
+	  
+    reg [31:0] count = 32'd0;
+    reg vsync, blank;
+
+    always @(posedge clk) begin
+        if (count <  1066)
+            count <= Ycount + 1;
+        else 
+            count <= 0;
+    end 
+
+    always @(*) begin
+        if (count < 1024) 
+            blank = 1;
+        else 
+            blank = 0;
+    end
+
+    always @(*) begin
+        if (count < 1025)
+            vsync = 1;
+        else if (count > 1024 && count < 1028)
+            vsync = 0;
+        else    
+            vsync = 1;
+        end
+    assign Ycount=count;
+    assign vout = vsync;
+    assign bout = blank;
+
+endmodule
+
+ //synopsys translate_off
+`timescale 1 ps / 1 ps
+ //synopsys translate_on
+module clock108 (areset, inclk0, c0, locked);
+
+    input     areset;
+    input     inclk0;
+    output    c0;
+    output    locked;
+
+`ifndef ALTERA_RESERVED_QIS
+ //synopsys translate_off
+`endif
+
+tri0      areset;
+
+`ifndef ALTERA_RESERVED_QIS
+ //synopsys translate_on
+`endif
+
+    wire [0:0] sub_wire2 = 1'h0;
+    wire [4:0] sub_wire3;
+    wire  sub_wire5;
+    wire  sub_wire0 = inclk0;
+    wire [1:0] sub_wire1 = {sub_wire2, sub_wire0};
+    wire [0:0] sub_wire4 = sub_wire3[0:0];
+    wire  c0 = sub_wire4;
+    wire  locked = sub_wire5;
+
+	 
+	 
+altpll  altpll_component (
+            .areset (areset),
+            .inclk (sub_wire1),
+            .clk (sub_wire3),
+            .locked (sub_wire5),
+            .activeclock (),
+            .clkbad (),
+            .clkena ({6{1'b1}}),
+            .clkloss (),
+            .clkswitch (1'b0),
+            .configupdate (1'b0),
+            .enable0 (),
+            .enable1 (),
+            .extclk (),
+            .extclkena ({4{1'b1}}),
+            .fbin (1'b1),
+            .fbmimicbidir (),
+            .fbout (),
+            .fref (),
+            .icdrclk (),
+            .pfdena (1'b1),
+            .phasecounterselect ({4{1'b1}}),
+            .phasedone (),
+            .phasestep (1'b1),
+            .phaseupdown (1'b1),
+            .pllena (1'b1),
+            .scanaclr (1'b0),
+            .scanclk (1'b0),
+            .scanclkena (1'b1),
+            .scandata (1'b0),
+            .scandataout (),
+            .scandone (),
+            .scanread (1'b0),
+            .scanwrite (1'b0),
+            .sclkout0 (),
+            .sclkout1 (),
+            .vcooverrange (),
+            .vcounderrange ());
+defparam
+    altpll_component.bandwidth_type = "AUTO",
+    altpll_component.clk0_divide_by = 25,
+    altpll_component.clk0_duty_cycle = 50,
+    altpll_component.clk0_multiply_by = 54,
+    altpll_component.clk0_phase_shift = "0",
+    altpll_component.compensate_clock = "CLK0",
+    altpll_component.inclk0_input_frequency = 20000,
+    altpll_component.intended_device_family = "Cyclone IV E",
+    altpll_component.lpm_hint = "CBX_MODULE_PREFIX=clock108",
+    altpll_component.lpm_type = "altpll",
+    altpll_component.operation_mode = "NORMAL",
+    altpll_component.pll_type = "AUTO",
+    altpll_component.port_activeclock = "PORT_UNUSED",
+    altpll_component.port_areset = "PORT_USED",
+    altpll_component.port_clkbad0 = "PORT_UNUSED",
+    altpll_component.port_clkbad1 = "PORT_UNUSED",
+    altpll_component.port_clkloss = "PORT_UNUSED",
+    altpll_component.port_clkswitch = "PORT_UNUSED",
+    altpll_component.port_configupdate = "PORT_UNUSED",
+    altpll_component.port_fbin = "PORT_UNUSED",
+    altpll_component.port_inclk0 = "PORT_USED",
+    altpll_component.port_inclk1 = "PORT_UNUSED",
+    altpll_component.port_locked = "PORT_USED",
+    altpll_component.port_pfdena = "PORT_UNUSED",
+    altpll_component.port_phasecounterselect = "PORT_UNUSED",
+    altpll_component.port_phasedone = "PORT_UNUSED",
+    altpll_component.port_phasestep = "PORT_UNUSED",
+    altpll_component.port_phaseupdown = "PORT_UNUSED",
+    altpll_component.port_pllena = "PORT_UNUSED",
+    altpll_component.port_scanaclr = "PORT_UNUSED",
+    altpll_component.port_scanclk = "PORT_UNUSED",
+    altpll_component.port_scanclkena = "PORT_UNUSED",
+    altpll_component.port_scandata = "PORT_UNUSED",
+    altpll_component.port_scandataout = "PORT_UNUSED",
+    altpll_component.port_scandone = "PORT_UNUSED",
+    altpll_component.port_scanread = "PORT_UNUSED",
+    altpll_component.port_scanwrite = "PORT_UNUSED",
+    altpll_component.port_clk0 = "PORT_USED",
+    altpll_component.port_clk1 = "PORT_UNUSED",
+    altpll_component.port_clk2 = "PORT_UNUSED",
+    altpll_component.port_clk3 = "PORT_UNUSED",
+    altpll_component.port_clk4 = "PORT_UNUSED",
+    altpll_component.port_clk5 = "PORT_UNUSED",
+    altpll_component.port_clkena0 = "PORT_UNUSED",
+    altpll_component.port_clkena1 = "PORT_UNUSED",
+    altpll_component.port_clkena2 = "PORT_UNUSED",
+    altpll_component.port_clkena3 = "PORT_UNUSED",
+    altpll_component.port_clkena4 = "PORT_UNUSED",
+    altpll_component.port_clkena5 = "PORT_UNUSED",
+    altpll_component.port_extclk0 = "PORT_UNUSED",
+    altpll_component.port_extclk1 = "PORT_UNUSED",
+    altpll_component.port_extclk2 = "PORT_UNUSED",
+    altpll_component.port_extclk3 = "PORT_UNUSED",
+    altpll_component.self_reset_on_loss_lock = "OFF",
+    altpll_component.width_clock = 5;
+
+
+endmodule
