@@ -1,0 +1,1 @@
+Two students of Miami University ECE 287 course (digital systems design) implement and create Atari's Pong on the Altera DE2-115 FPGA board. The game is two player, interfaced by a keyboard.

@@ -1,0 +1,276 @@
+/* Using Bailey Hull's code for VGA output where the VGA output is used to get a single color onscreen, I altered the code to get black and white to display on the screen. 
+Bailey's methods were adjusted to allow for reading of X and Y coordinates and an if statement is used to paint the appropriate areas black and white.*/
+
+
+module Visual_Pong(clk, VGA_R,VGA_B,VGA_G,VGA_BLANK_N, VGA_SYNC_N , VGA_HS, VGA_VS, rst, VGA_CLK );
+
+    output [7:0] VGA_R, VGA_B, VGA_G;
+    output VGA_HS, VGA_VS, VGA_BLANK_N, VGA_CLK, VGA_SYNC_N;
+    input clk, rst;
+    wire CLK108;
+    //x and y coordinates
+	 wire [31:0]X, Y;
+    //if black pixel reg
+	 reg black;
+
+    clock108(rst, clk, CLK_108, locked);
+
+    wire hblank, vblank, clkLine, blank;
+
+    H_SYNC(CLK_108, VGA_HS, hblank, clkLine, X);
+    V_SYNC(clkLine, VGA_VS, vblank, Y);
+	 
+    //painting the areas black or white, as nessisary. 
+    always@(*)
+		begin
+	 if((X>=31'd750&&X<=31'd1000)&&(Y>=31'd500)&&(Y<=31'd1000))
+    black=1'b0;
+	 else
+	 black=1'b1;
+	 end
+	 
+	 color(clk,VGA_R,VGA_B,VGA_G, black );
+    assign VGA_CLK = CLK_108;
+    assign VGA_BLANK_N = VGA_VS&VGA_HS;
+    assign VGA_SYNC_N = 1'b0;
+	 
+	 
+endmodule
+
+
+//adjusted color code to allow for black and white to be output
+module color(clk, red, blue, green, black);
+
+    input clk, black;
+    output [7:0] red, blue, green;
+	 reg[7:0] red, green, blue;
+	always@(*)
+	begin
+		if(black==1'b1)
+		begin
+		 red = 8'd0;
+		 blue = 8'd0;
+		 green = 8'd0;
+		end 
+		else
+		begin
+		 red = 8'd255;
+		 blue = 8'd255;
+		 green = 8'd255;
+		end
+	end
+	 
+endmodule
+
+//added an output for the X coordinate output
+module H_SYNC(clk, hout, bout, newLine, Xcount);
+
+    input clk;
+    output hout, bout, newLine;
+	 output [31:0] Xcount;
+	 
+	
+    reg [31:0] count = 32'd0;
+    reg hsync, blank, new;
+
+    always @(posedge clk) begin
+        if (count <  1688)
+            count <= Xcount + 1;
+        else 
+            count <= 0;
+    end 
+
+    always @(*) begin
+        if (count == 0)
+            new = 1;
+        else
+            new = 0;
+    end 
+
+    always @(*) begin
+        if (count > 1279) 
+            blank = 1;
+        else 
+            blank = 0;
+    end
+
+    always @(*) begin
+        if (count < 1328)
+            hsync = 1;
+        else if (count > 1327 && count < 1440)
+            hsync = 0;
+        else    
+            hsync = 1;
+        end
+    assign Xcount=count;
+    assign hout = hsync;
+    assign bout = blank;
+    assign newLine = new;
+
+endmodule
+
+
+//added an output for the y coordinate 
+module V_SYNC(clk, vout, bout, Ycount);
+
+    input clk;
+    output vout, bout;
+    output [31:0]Ycount; 
+	  
+    reg [31:0] count = 32'd0;
+    reg vsync, blank;
+
+    always @(posedge clk) begin
+        if (count <  1066)
+            count <= Ycount + 1;
+        else 
+            count <= 0;
+    end 
+
+    always @(*) begin
+        if (count < 1024) 
+            blank = 1;
+        else 
+            blank = 0;
+    end
+
+    always @(*) begin
+        if (count < 1025)
+            vsync = 1;
+        else if (count > 1024 && count < 1028)
+            vsync = 0;
+        else    
+            vsync = 1;
+        end
+    assign Ycount=count;
+    assign vout = vsync;
+    assign bout = blank;
+
+endmodule
+
+ //synopsys translate_off
+`timescale 1 ps / 1 ps
+ //synopsys translate_on
+module clock108 (areset, inclk0, c0, locked);
+
+    input     areset;
+    input     inclk0;
+    output    c0;
+    output    locked;
+
+`ifndef ALTERA_RESERVED_QIS
+ //synopsys translate_off
+`endif
+
+tri0      areset;
+
+`ifndef ALTERA_RESERVED_QIS
+ //synopsys translate_on
+`endif
+
+    wire [0:0] sub_wire2 = 1'h0;
+    wire [4:0] sub_wire3;
+    wire  sub_wire5;
+    wire  sub_wire0 = inclk0;
+    wire [1:0] sub_wire1 = {sub_wire2, sub_wire0};
+    wire [0:0] sub_wire4 = sub_wire3[0:0];
+    wire  c0 = sub_wire4;
+    wire  locked = sub_wire5;
+
+altpll  altpll_component (
+            .areset (areset),
+            .inclk (sub_wire1),
+            .clk (sub_wire3),
+            .locked (sub_wire5),
+            .activeclock (),
+            .clkbad (),
+            .clkena ({6{1'b1}}),
+            .clkloss (),
+            .clkswitch (1'b0),
+            .configupdate (1'b0),
+            .enable0 (),
+            .enable1 (),
+            .extclk (),
+            .extclkena ({4{1'b1}}),
+            .fbin (1'b1),
+            .fbmimicbidir (),
+            .fbout (),
+            .fref (),
+            .icdrclk (),
+            .pfdena (1'b1),
+            .phasecounterselect ({4{1'b1}}),
+            .phasedone (),
+            .phasestep (1'b1),
+            .phaseupdown (1'b1),
+            .pllena (1'b1),
+            .scanaclr (1'b0),
+            .scanclk (1'b0),
+            .scanclkena (1'b1),
+            .scandata (1'b0),
+            .scandataout (),
+            .scandone (),
+            .scanread (1'b0),
+            .scanwrite (1'b0),
+            .sclkout0 (),
+            .sclkout1 (),
+            .vcooverrange (),
+            .vcounderrange ());
+defparam
+    altpll_component.bandwidth_type = "AUTO",
+    altpll_component.clk0_divide_by = 25,
+    altpll_component.clk0_duty_cycle = 50,
+    altpll_component.clk0_multiply_by = 54,
+    altpll_component.clk0_phase_shift = "0",
+    altpll_component.compensate_clock = "CLK0",
+    altpll_component.inclk0_input_frequency = 20000,
+    altpll_component.intended_device_family = "Cyclone IV E",
+    altpll_component.lpm_hint = "CBX_MODULE_PREFIX=clock108",
+    altpll_component.lpm_type = "altpll",
+    altpll_component.operation_mode = "NORMAL",
+    altpll_component.pll_type = "AUTO",
+    altpll_component.port_activeclock = "PORT_UNUSED",
+    altpll_component.port_areset = "PORT_USED",
+    altpll_component.port_clkbad0 = "PORT_UNUSED",
+    altpll_component.port_clkbad1 = "PORT_UNUSED",
+    altpll_component.port_clkloss = "PORT_UNUSED",
+    altpll_component.port_clkswitch = "PORT_UNUSED",
+    altpll_component.port_configupdate = "PORT_UNUSED",
+    altpll_component.port_fbin = "PORT_UNUSED",
+    altpll_component.port_inclk0 = "PORT_USED",
+    altpll_component.port_inclk1 = "PORT_UNUSED",
+    altpll_component.port_locked = "PORT_USED",
+    altpll_component.port_pfdena = "PORT_UNUSED",
+    altpll_component.port_phasecounterselect = "PORT_UNUSED",
+    altpll_component.port_phasedone = "PORT_UNUSED",
+    altpll_component.port_phasestep = "PORT_UNUSED",
+    altpll_component.port_phaseupdown = "PORT_UNUSED",
+    altpll_component.port_pllena = "PORT_UNUSED",
+    altpll_component.port_scanaclr = "PORT_UNUSED",
+    altpll_component.port_scanclk = "PORT_UNUSED",
+    altpll_component.port_scanclkena = "PORT_UNUSED",
+    altpll_component.port_scandata = "PORT_UNUSED",
+    altpll_component.port_scandataout = "PORT_UNUSED",
+    altpll_component.port_scandone = "PORT_UNUSED",
+    altpll_component.port_scanread = "PORT_UNUSED",
+    altpll_component.port_scanwrite = "PORT_UNUSED",
+    altpll_component.port_clk0 = "PORT_USED",
+    altpll_component.port_clk1 = "PORT_UNUSED",
+    altpll_component.port_clk2 = "PORT_UNUSED",
+    altpll_component.port_clk3 = "PORT_UNUSED",
+    altpll_component.port_clk4 = "PORT_UNUSED",
+    altpll_component.port_clk5 = "PORT_UNUSED",
+    altpll_component.port_clkena0 = "PORT_UNUSED",
+    altpll_component.port_clkena1 = "PORT_UNUSED",
+    altpll_component.port_clkena2 = "PORT_UNUSED",
+    altpll_component.port_clkena3 = "PORT_UNUSED",
+    altpll_component.port_clkena4 = "PORT_UNUSED",
+    altpll_component.port_clkena5 = "PORT_UNUSED",
+    altpll_component.port_extclk0 = "PORT_UNUSED",
+    altpll_component.port_extclk1 = "PORT_UNUSED",
+    altpll_component.port_extclk2 = "PORT_UNUSED",
+    altpll_component.port_extclk3 = "PORT_UNUSED",
+    altpll_component.self_reset_on_loss_lock = "OFF",
+    altpll_component.width_clock = 5;
+
+
+endmodule
